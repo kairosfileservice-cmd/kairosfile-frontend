@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  background: #09090b;
+}
+
+#root {
+  width: 100%;
+  min-height: 100svh;
+  text-align: left;
+  /* Gradiente sutil en la parte superior — estilo premium */
+  background:
+    radial-gradient(ellipse 90% 50% at 50% -5%, rgba(124, 58, 237, 0.1) 0%, transparent 65%),
+    #09090b;
+}
+
+/* Scrollbar ultra fina */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
