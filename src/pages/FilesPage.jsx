@@ -1,22 +1,30 @@
 import { useState, useEffect, useCallback } from 'react';
 import { UserList } from '../components/UserList';
-import { fetchFiles } from '../services/api';
+import { fetchFiles, browseFolder, createFolder } from '../services/api';
 import { formatSize, formatDate, getFileType, FILE_TYPE_STYLES } from '../utils/fileUtils';
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 export function FilesPage() {
   const [selectedUser, setSelectedUser] = useState(null);
+  const [breadcrumb, setBreadcrumb] = useState([]); // [{ id, name }]
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('grid');
+  const [newFolderModal, setNewFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [folderError, setFolderError] = useState('');
 
-  const loadFiles = useCallback(async (user) => {
-    if (!user) return;
+  const currentFolder = breadcrumb[breadcrumb.length - 1] ?? null;
+
+  const loadFolder = useCallback(async (folderId) => {
     setLoading(true);
     setError(null);
     setFiles([]);
     try {
-      const data = await fetchFiles(user.name);
+      const data = await browseFolder(folderId);
       setFiles(data.files);
     } catch (err) {
       setError(err.message);
@@ -25,9 +33,64 @@ export function FilesPage() {
     }
   }, []);
 
-  useEffect(() => { if (selectedUser) loadFiles(selectedUser); }, [selectedUser, loadFiles]);
+  const handleSelectUser = useCallback(async (user) => {
+    setSelectedUser(user);
+    setFiles([]);
+    setError(null);
+    setBreadcrumb([]);
+    setLoading(true);
+    try {
+      const data = await fetchFiles(user.name);
+      if (data.folderExists && data.folderId) {
+        setBreadcrumb([{ id: data.folderId, name: user.name }]);
+        setFiles(data.files);
+      } else {
+        setBreadcrumb([]);
+        setFiles([]);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleSelectUser = (u) => { setSelectedUser(u); setFiles([]); setError(null); };
+  const handleEnterFolder = (folder) => {
+    const next = [...breadcrumb, { id: folder.id, name: folder.name }];
+    setBreadcrumb(next);
+    loadFolder(folder.id);
+  };
+
+  const handleBreadcrumbClick = (index) => {
+    const next = breadcrumb.slice(0, index + 1);
+    setBreadcrumb(next);
+    loadFolder(next[next.length - 1].id);
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    setCreatingFolder(true);
+    setFolderError('');
+    try {
+      await createFolder(newFolderName.trim(), currentFolder?.id, selectedUser?.name);
+      setNewFolderModal(false);
+      setNewFolderName('');
+      loadFolder(currentFolder.id);
+    } catch (err) {
+      setFolderError(err.message);
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const openNewFolderModal = () => {
+    setNewFolderName('');
+    setFolderError('');
+    setNewFolderModal(true);
+  };
+
+  const folders = files.filter((f) => f.mimeType === FOLDER_MIME);
+  const onlyFiles = files.filter((f) => f.mimeType !== FOLDER_MIME);
 
   return (
     <div className="flex h-full min-h-0">
@@ -51,26 +114,48 @@ export function FilesPage() {
           <>
             {/* Toolbar */}
             <div className="px-6 py-3.5 border-b border-white/[0.06] flex items-center justify-between gap-4 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white text-xs font-bold shadow-md shadow-violet-600/20">
-                  {selectedUser.initials}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-semibold text-zinc-100">{selectedUser.name}</h2>
-                    <span className="text-[11px] text-zinc-600 bg-white/[0.05] border border-white/[0.07] px-2 py-0.5 rounded-full">
-                      {selectedUser.department}
-                    </span>
-                  </div>
-                  {!loading && (
-                    <p className="text-xs text-zinc-700 mt-0.5">
-                      {files.length === 0 ? 'Sin archivos' : `${files.length} archivo${files.length !== 1 ? 's' : ''} en Drive`}
-                    </p>
-                  )}
-                </div>
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {/* Breadcrumb */}
+                <nav className="flex items-center gap-1 text-sm min-w-0 flex-wrap">
+                  {breadcrumb.map((crumb, i) => {
+                    const isLast = i === breadcrumb.length - 1;
+                    return (
+                      <span key={crumb.id} className="flex items-center gap-1 min-w-0">
+                        {i > 0 && (
+                          <svg className="w-3 h-3 text-zinc-700 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+                          </svg>
+                        )}
+                        {isLast ? (
+                          <span className="font-semibold text-zinc-100 truncate max-w-[160px]">{crumb.name}</span>
+                        ) : (
+                          <button
+                            onClick={() => handleBreadcrumbClick(i)}
+                            className="text-zinc-500 hover:text-violet-400 transition-colors truncate max-w-[120px]"
+                          >
+                            {crumb.name}
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                </nav>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Nueva carpeta */}
+                {currentFolder && (
+                  <button
+                    onClick={openNewFolderModal}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/30 bg-violet-600/10 hover:bg-violet-600/20 text-violet-400 text-xs font-medium transition-all"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                    </svg>
+                    Nueva carpeta
+                  </button>
+                )}
+
                 {/* View toggle */}
                 <div className="bg-white/[0.04] border border-white/[0.07] rounded-lg p-1 flex gap-0.5">
                   <ViewBtn active={viewMode === 'grid'} onClick={() => setViewMode('grid')} title="Cuadrícula">
@@ -86,8 +171,8 @@ export function FilesPage() {
                 </div>
 
                 <button
-                  onClick={() => loadFiles(selectedUser)}
-                  disabled={loading}
+                  onClick={() => currentFolder && loadFolder(currentFolder.id)}
+                  disabled={loading || !currentFolder}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.07] bg-white/[0.04] hover:bg-white/[0.07] text-zinc-500 hover:text-zinc-300 text-xs font-medium transition-all disabled:opacity-40"
                 >
                   <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -100,23 +185,168 @@ export function FilesPage() {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-5">
-              {loading ? <LoadingState /> :
-               error ? <ErrorState message={error} onRetry={() => loadFiles(selectedUser)} /> :
-               files.length === 0 ? <EmptyFiles userName={selectedUser.name} /> :
-               viewMode === 'grid' ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                  {files.map((f) => <FileCard key={f.id} file={f} />)}
+              {loading ? (
+                <LoadingState />
+              ) : error ? (
+                <ErrorState message={error} onRetry={() => currentFolder && loadFolder(currentFolder.id)} />
+              ) : !currentFolder ? (
+                <EmptyFiles userName={selectedUser.name} noFolder />
+              ) : files.length === 0 ? (
+                <EmptyFiles userName={selectedUser.name} onNewFolder={openNewFolderModal} />
+              ) : viewMode === 'grid' ? (
+                <div className="space-y-5">
+                  {/* Carpetas */}
+                  {folders.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest mb-2.5">
+                        Carpetas
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                        {folders.map((f) => (
+                          <FolderCard key={f.id} folder={f} onOpen={() => handleEnterFolder(f)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Archivos */}
+                  {onlyFiles.length > 0 && (
+                    <div>
+                      {folders.length > 0 && (
+                        <p className="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest mb-2.5">
+                          Archivos
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                        {onlyFiles.map((f) => <FileCard key={f.id} file={f} />)}
+                      </div>
+                    </div>
+                  )}
                 </div>
-               ) : (
+              ) : (
                 <div className="space-y-1.5">
-                  {files.map((f) => <FileRow key={f.id} file={f} />)}
+                  {folders.map((f) => (
+                    <FolderRow key={f.id} folder={f} onOpen={() => handleEnterFolder(f)} />
+                  ))}
+                  {onlyFiles.map((f) => <FileRow key={f.id} file={f} />)}
                 </div>
-               )}
+              )}
             </div>
           </>
         )}
       </main>
+
+      {/* Modal nueva carpeta */}
+      {newFolderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-white/[0.1] rounded-2xl p-6 w-80 shadow-2xl shadow-black/50">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-violet-600/15 border border-violet-500/25 flex items-center justify-center">
+                <svg className="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-zinc-100">Nueva carpeta</p>
+                <p className="text-xs text-zinc-500 truncate max-w-[160px]">En: {currentFolder?.name}</p>
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={newFolderName}
+              onChange={(e) => { setNewFolderName(e.target.value); setFolderError(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') setNewFolderModal(false); }}
+              placeholder="Nombre de la carpeta"
+              autoFocus
+              className={`w-full bg-white/[0.05] border rounded-xl px-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none transition-all ${
+                folderError
+                  ? 'border-red-500/50 focus:border-red-500/70'
+                  : 'border-white/[0.08] focus:border-violet-500/50 focus:bg-white/[0.07]'
+              }`}
+            />
+
+            {folderError && (
+              <p className="text-xs text-red-400 mt-2">{folderError}</p>
+            )}
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setNewFolderModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] text-sm font-medium transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateFolder}
+                disabled={!newFolderName.trim() || creatingFolder}
+                className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
+              >
+                {creatingFolder ? (
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                    <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : 'Crear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* ─── Folder card ─── */
+function FolderCard({ folder, onOpen }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="group relative bg-amber-500/[0.06] border border-amber-500/[0.15] hover:border-amber-500/30 hover:bg-amber-500/[0.1] rounded-2xl p-4 flex flex-col gap-3 transition-all duration-150 text-left w-full"
+    >
+      <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center">
+        <svg className="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-zinc-200 truncate leading-snug" title={folder.name}>
+          {folder.name}
+        </p>
+        <p className="text-[11px] text-zinc-600 mt-1">{formatDate(folder.createdTime)}</p>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 uppercase tracking-wide">
+          Carpeta
+        </span>
+        <svg className="w-3.5 h-3.5 text-zinc-600 group-hover:text-amber-400 transition-colors" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+        </svg>
+      </div>
+    </button>
+  );
+}
+
+/* ─── Folder row ─── */
+function FolderRow({ folder, onOpen }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="group flex items-center gap-3 bg-amber-500/[0.04] border border-amber-500/[0.12] hover:border-amber-500/25 hover:bg-amber-500/[0.08] rounded-xl px-4 py-2.5 transition-all w-full text-left"
+    >
+      <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/20 flex items-center justify-center shrink-0">
+        <svg className="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
+        </svg>
+      </div>
+      <p className="flex-1 text-sm font-medium text-zinc-300 truncate min-w-0">{folder.name}</p>
+      <span className="text-xs text-zinc-600 hidden md:block shrink-0">{formatDate(folder.createdTime)}</span>
+      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 bg-amber-500/10 text-amber-400 uppercase tracking-wide">
+        Carpeta
+      </span>
+      <svg className="w-3.5 h-3.5 text-zinc-600 group-hover:text-amber-400 transition-colors shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+      </svg>
+    </button>
   );
 }
 
@@ -127,20 +357,15 @@ function FileCard({ file }) {
 
   return (
     <div className="group relative bg-white/[0.03] border border-white/[0.07] hover:border-white/[0.12] hover:bg-white/[0.05] rounded-2xl p-4 flex flex-col gap-3 transition-all duration-150 cursor-default">
-      {/* Icon */}
       <div className={`w-10 h-10 rounded-xl ${style.bg} border ${style.border} flex items-center justify-center`}>
         <FileTypeIcon type={type} className={`w-5 h-5 ${style.text}`} />
       </div>
-
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold text-zinc-200 truncate leading-snug" title={file.name}>
           {file.name}
         </p>
         <p className="text-[11px] text-zinc-600 mt-1">{formatDate(file.createdTime)}</p>
       </div>
-
-      {/* Footer */}
       <div className="flex items-center justify-between">
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${style.bg} ${style.text} uppercase tracking-wide`}>
           {style.label}
@@ -193,7 +418,7 @@ function LoadingState() {
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-4">
       <div className="w-8 h-8 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
-      <p className="text-xs text-zinc-600">Cargando archivos...</p>
+      <p className="text-xs text-zinc-600">Cargando...</p>
     </div>
   );
 }
@@ -217,7 +442,7 @@ function ErrorState({ message, onRetry }) {
   );
 }
 
-function EmptyFiles({ userName }) {
+function EmptyFiles({ userName, noFolder, onNewFolder }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-4 max-w-xs mx-auto text-center">
       <div className="w-12 h-12 bg-white/[0.03] border border-white/[0.07] rounded-2xl flex items-center justify-center">
@@ -225,10 +450,28 @@ function EmptyFiles({ userName }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
         </svg>
       </div>
-      <div>
-        <p className="text-sm font-semibold text-zinc-500">{userName} no tiene archivos</p>
-        <p className="text-xs text-zinc-700 mt-1">Usa "Subir archivos" para agregar documentos.</p>
-      </div>
+      {noFolder ? (
+        <div>
+          <p className="text-sm font-semibold text-zinc-500">{userName} no tiene carpeta aún</p>
+          <p className="text-xs text-zinc-700 mt-1">Sube un archivo primero para crear su carpeta.</p>
+        </div>
+      ) : (
+        <div>
+          <p className="text-sm font-semibold text-zinc-500">Esta carpeta está vacía</p>
+          <p className="text-xs text-zinc-700 mt-1">Sube archivos o crea una subcarpeta.</p>
+        </div>
+      )}
+      {onNewFolder && (
+        <button
+          onClick={onNewFolder}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-violet-500/30 bg-violet-600/10 hover:bg-violet-600/20 text-violet-400 text-xs font-medium transition-all"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Nueva carpeta
+        </button>
+      )}
     </div>
   );
 }

@@ -2,11 +2,13 @@
 // Cambia esta URL cuando despliegues en Render.
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
-export async function uploadFile(file, userName, onProgress) {
+// Sube un archivo a la carpeta del usuario (o a folderId si se especifica)
+export async function uploadFile(file, userName, onProgress, folderId = null) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append('userName', userName);
     form.append('file', file);
+    if (folderId) form.append('folderId', folderId);
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BASE_URL}/api/upload`);
@@ -32,11 +34,33 @@ export async function uploadFile(file, userName, onProgress) {
   });
 }
 
+// Obtiene los archivos de la carpeta raíz del usuario
+// Retorna { folderExists, folderId, files }
 export async function fetchFiles(userName) {
   const res = await fetch(
     `${BASE_URL}/api/files/${encodeURIComponent(userName)}`
   );
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
-  return data; // { folderExists: boolean, files: [] }
+  return data;
+}
+
+// Lista el contenido de una carpeta por su ID (para navegar subfolders)
+export async function browseFolder(folderId) {
+  const res = await fetch(`${BASE_URL}/api/browse/${encodeURIComponent(folderId)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+  return data; // { files }
+}
+
+// Crea una subcarpeta dentro de parentFolderId (o dentro de la carpeta raíz del usuario)
+export async function createFolder(folderName, parentFolderId, userName) {
+  const res = await fetch(`${BASE_URL}/api/folders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folderName, parentFolderId, userName }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+  return data; // { success, folder: { id, name } }
 }

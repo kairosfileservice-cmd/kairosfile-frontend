@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react';
 import { UserList } from '../components/UserList';
-import { uploadFile } from '../services/api';
+import { uploadFile, fetchFiles, browseFolder, createFolder } from '../services/api';
 import { formatSize } from '../utils/fileUtils';
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 export function UploadPage() {
   const [selectedUser, setSelectedUser] = useState(null);
@@ -10,6 +12,83 @@ export function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
+
+  // Navegación de carpeta destino
+  const [breadcrumb, setBreadcrumb] = useState([]); // [{ id, name }]
+  const [subfolders, setSubfolders] = useState([]);
+  const [loadingFolders, setLoadingFolders] = useState(false);
+  const [folderPicker, setFolderPicker] = useState(false);
+
+  // Nueva carpeta inline
+  const [newFolderInput, setNewFolderInput] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
+  const currentFolder = breadcrumb[breadcrumb.length - 1] ?? null;
+
+  const loadSubfolders = async (folderId) => {
+    setLoadingFolders(true);
+    try {
+      const data = await browseFolder(folderId);
+      setSubfolders(data.files.filter((f) => f.mimeType === FOLDER_MIME));
+    } catch {
+      setSubfolders([]);
+    } finally {
+      setLoadingFolders(false);
+    }
+  };
+
+  const handleSelectUser = useCallback(async (user) => {
+    setSelectedUser(user);
+    setFile(null);
+    setResult(null);
+    setBreadcrumb([]);
+    setSubfolders([]);
+    setFolderPicker(false);
+    setNewFolderInput(false);
+    setLoadingFolders(true);
+    try {
+      const data = await fetchFiles(user.name);
+      if (data.folderExists && data.folderId) {
+        const root = { id: data.folderId, name: user.name };
+        setBreadcrumb([root]);
+        const folders = data.files.filter((f) => f.mimeType === FOLDER_MIME);
+        setSubfolders(folders);
+      }
+    } catch {
+      // La carpeta aún no existe, se creará al subir
+    } finally {
+      setLoadingFolders(false);
+    }
+  }, []);
+
+  const handleEnterFolder = (folder) => {
+    const next = [...breadcrumb, { id: folder.id, name: folder.name }];
+    setBreadcrumb(next);
+    loadSubfolders(folder.id);
+  };
+
+  const handleBreadcrumbClick = (index) => {
+    const next = breadcrumb.slice(0, index + 1);
+    setBreadcrumb(next);
+    loadSubfolders(next[next.length - 1].id);
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim() || !currentFolder) return;
+    setCreatingFolder(true);
+    try {
+      const data = await createFolder(newFolderName.trim(), currentFolder.id, selectedUser.name);
+      setNewFolderInput(false);
+      setNewFolderName('');
+      // Navegar a la carpeta recién creada
+      handleEnterFolder({ id: data.folder.id, name: data.folder.name });
+    } catch {
+      // silencioso, el usuario puede reintentar
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
@@ -31,10 +110,12 @@ export function UploadPage() {
     setProgress(0);
     setResult(null);
     try {
-      const data = await uploadFile(file, selectedUser.name, setProgress);
+      const targetFolderId = currentFolder?.id ?? null;
+      const data = await uploadFile(file, selectedUser.name, setProgress, targetFolderId);
+      const destName = currentFolder?.name ?? selectedUser.name;
       setResult({
         ok: true,
-        msg: `"${data.file.name}" subido a la carpeta de ${selectedUser.name}${data.folderCreated ? ' · carpeta creada automáticamente' : ''}.`,
+        msg: `"${data.file.name}" subido a ${destName}${data.folderCreated ? ' · carpeta creada automáticamente' : ''}.`,
         link: data.file.webViewLink,
       });
       setFile(null);
@@ -54,7 +135,7 @@ export function UploadPage() {
             Usuarios
           </p>
         </div>
-        <UserList selectedUser={selectedUser} onSelect={(u) => { setSelectedUser(u); setResult(null); setFile(null); }} />
+        <UserList selectedUser={selectedUser} onSelect={handleSelectUser} />
       </aside>
 
       {/* ── Main ── */}
@@ -71,8 +152,119 @@ export function UploadPage() {
               </div>
               <div>
                 <p className="font-semibold text-zinc-100 text-sm leading-tight">{selectedUser.name}</p>
-                <p className="text-xs text-zinc-600 mt-0.5">{selectedUser.department} · Archivos en Google Drive</p>
+                <p className="text-xs text-zinc-600 mt-0.5">Archivos en Google Drive</p>
               </div>
+            </div>
+
+            {/* Carpeta destino */}
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest">Destino</p>
+                <button
+                  onClick={() => { setFolderPicker((v) => !v); setNewFolderInput(false); }}
+                  className="text-[11px] text-violet-400 hover:text-violet-300 transition-colors"
+                >
+                  {folderPicker ? 'Cerrar' : 'Cambiar'}
+                </button>
+              </div>
+
+              {/* Breadcrumb actual */}
+              <div className="flex items-center gap-1 flex-wrap">
+                {breadcrumb.length === 0 ? (
+                  <span className="text-xs text-zinc-500 italic">Carpeta raíz (se creará al subir)</span>
+                ) : (
+                  breadcrumb.map((crumb, i) => {
+                    const isLast = i === breadcrumb.length - 1;
+                    return (
+                      <span key={crumb.id} className="flex items-center gap-1">
+                        {i > 0 && (
+                          <svg className="w-3 h-3 text-zinc-700 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+                          </svg>
+                        )}
+                        {isLast ? (
+                          <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1">
+                            <svg className="w-3 h-3 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
+                            </svg>
+                            {crumb.name}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => { handleBreadcrumbClick(i); setFolderPicker(true); }}
+                            className="text-xs text-zinc-500 hover:text-violet-400 transition-colors"
+                          >
+                            {crumb.name}
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Folder picker expandido */}
+              {folderPicker && (
+                <div className="mt-1 space-y-1.5 border-t border-white/[0.06] pt-2.5">
+                  {loadingFolders ? (
+                    <div className="flex justify-center py-3">
+                      <div className="w-4 h-4 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : subfolders.length === 0 && !newFolderInput ? (
+                    <p className="text-xs text-zinc-600 py-1">No hay subcarpetas aquí.</p>
+                  ) : (
+                    subfolders.map((folder) => (
+                      <button
+                        key={folder.id}
+                        onClick={() => handleEnterFolder(folder)}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.15] hover:bg-amber-500/[0.12] text-left transition-all"
+                      >
+                        <svg className="w-3.5 h-3.5 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
+                        </svg>
+                        <span className="text-xs text-zinc-300 truncate">{folder.name}</span>
+                        <svg className="w-3 h-3 text-zinc-600 ml-auto shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+                        </svg>
+                      </button>
+                    ))
+                  )}
+
+                  {/* Input nueva carpeta */}
+                  {newFolderInput ? (
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setNewFolderInput(false); setNewFolderName(''); }}}
+                        placeholder="Nombre de carpeta"
+                        autoFocus
+                        className="flex-1 bg-white/[0.05] border border-white/[0.08] focus:border-violet-500/50 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none transition-all"
+                      />
+                      <button
+                        onClick={handleCreateFolder}
+                        disabled={!newFolderName.trim() || creatingFolder}
+                        className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-30 text-white text-xs font-semibold transition-all"
+                      >
+                        {creatingFolder ? '...' : 'Crear'}
+                      </button>
+                    </div>
+                  ) : (
+                    currentFolder && (
+                      <button
+                        onClick={() => setNewFolderInput(true)}
+                        className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-violet-400 transition-colors py-1"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Nueva carpeta aquí
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Drop zone */}
