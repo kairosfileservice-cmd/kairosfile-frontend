@@ -17,8 +17,8 @@ export const GOOGLE_CLIENT_ID = 'TU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 // Lista de usuarios del sistema
 // Modifica esta lista con los usuarios de tu organización
 export const USERS = [
-  { id: '1', name: 'Juan Loyola',      initials: 'JL', department: '' },
-  { id: '2', name: 'Christian Diaz',   initials: 'CD', department: '' },
-  { id: '3', name: 'Roberto Torres',   initials: 'RT', department: '' },
-  { id: '4', name: 'Terry Walker',     initials: 'TW', department: '' },
+  { id: '1', name: 'Juan Loyola',      initials: 'JL', department: '', password: 'loyola1' },
+  { id: '2', name: 'Christian Diaz',   initials: 'CD', department: '', password: 'diaz12' },
+  { id: '3', name: 'Roberto Torres',   initials: 'RT', department: '', password: 'torres1' },
+  { id: '4', name: 'Terry Walker',     initials: 'TW', department: '', password: 'walker1' },
 ];
