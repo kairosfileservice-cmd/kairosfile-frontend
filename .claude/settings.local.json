@@ -3,7 +3,12 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(npm run:*)",
-      "Bash(node --input-type=module)"
+      "Bash(node --input-type=module)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(ls /c/KairosFile/frontend/.env*)",
+      "Bash(netstat -ano)",
+      "Read(//c/KairosFile/frontend/**)",
+      "Bash(xargs -I{} taskkill //PID {} //F)"
     ]
   }
 }

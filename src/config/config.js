@@ -14,6 +14,8 @@
 
 export const GOOGLE_CLIENT_ID = 'TU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 
+export const ADMIN_PASSWORD = 'admin2024';
+
 // Lista de usuarios del sistema
 // Modifica esta lista con los usuarios de tu organización
 export const USERS = [
@@ -21,4 +23,6 @@ export const USERS = [
   { id: '2', name: 'Christian Diaz',   initials: 'CD', department: '', password: 'diaz12' },
   { id: '3', name: 'Roberto Torres',   initials: 'RT', department: '', password: 'torres1' },
   { id: '4', name: 'Terry Walker',     initials: 'TW', department: '', password: 'walker1' },
+  { id: '5', name: 'Eric Hanson',      initials: 'EH', department: '', password: 'hanson1' },
+  { id: '6', name: 'Terrence Walker',  initials: 'TW', department: '', password: 'terrence1' },
 ];

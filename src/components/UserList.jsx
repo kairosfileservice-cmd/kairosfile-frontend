@@ -12,7 +12,7 @@ const AVATAR_GRADIENTS = [
   'from-fuchsia-500 to-violet-500',
 ];
 
-export function UserList({ selectedUser, onSelect }) {
+export function UserList({ selectedUser, onSelect, skipPassword = false }) {
   const [search, setSearch] = useState('');
   const [pendingUser, setPendingUser] = useState(null);
   const [password, setPassword] = useState('');
@@ -25,6 +25,7 @@ export function UserList({ selectedUser, onSelect }) {
   );
 
   const handleUserClick = (user) => {
+    if (skipPassword) { onSelect(user); return; }
     setPendingUser(user);
     setPassword('');
     setError(false);

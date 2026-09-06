@@ -75,14 +75,28 @@ export function UploadPage() {
   };
 
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim() || !currentFolder) return;
+    if (!newFolderName.trim()) return;
     setCreatingFolder(true);
     try {
-      const data = await createFolder(newFolderName.trim(), currentFolder.id, selectedUser.name);
+      const data = await createFolder(newFolderName.trim(), currentFolder?.id ?? null, selectedUser.name);
+      const newFolder = { id: data.folder.id, name: data.folder.name };
+
+      if (!currentFolder) {
+        // La carpeta raíz aún no existía — obtenerla para armar el breadcrumb
+        const rootData = await fetchFiles(selectedUser.name);
+        if (rootData.folderId) {
+          setBreadcrumb([{ id: rootData.folderId, name: selectedUser.name }, newFolder]);
+        } else {
+          setBreadcrumb([newFolder]);
+        }
+      } else {
+        setBreadcrumb([...breadcrumb, newFolder]);
+      }
+
       setNewFolderInput(false);
       setNewFolderName('');
-      // Navegar a la carpeta recién creada
-      handleEnterFolder({ id: data.folder.id, name: data.folder.name });
+      setSubfolders([]);
+      setFolderPicker(false); // cerrar picker — la nueva carpeta ya es el destino
     } catch {
       // silencioso, el usuario puede reintentar
     } finally {
@@ -210,58 +224,67 @@ export function UploadPage() {
                     <div className="flex justify-center py-3">
                       <div className="w-4 h-4 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
                     </div>
-                  ) : subfolders.length === 0 && !newFolderInput ? (
-                    <p className="text-xs text-zinc-600 py-1">No hay subcarpetas aquí.</p>
                   ) : (
-                    subfolders.map((folder) => (
-                      <button
-                        key={folder.id}
-                        onClick={() => handleEnterFolder(folder)}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.15] hover:bg-amber-500/[0.12] text-left transition-all"
-                      >
-                        <svg className="w-3.5 h-3.5 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
-                        </svg>
-                        <span className="text-xs text-zinc-300 truncate">{folder.name}</span>
-                        <svg className="w-3 h-3 text-zinc-600 ml-auto shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
-                    ))
-                  )}
+                    <>
+                      {subfolders.map((folder) => (
+                        <button
+                          key={folder.id}
+                          onClick={() => handleEnterFolder(folder)}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.15] hover:bg-amber-500/[0.12] text-left transition-all"
+                        >
+                          <svg className="w-3.5 h-3.5 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
+                          </svg>
+                          <span className="text-xs text-zinc-300 truncate">{folder.name}</span>
+                          <svg className="w-3 h-3 text-zinc-600 ml-auto shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+                          </svg>
+                        </button>
+                      ))}
 
-                  {/* Input nueva carpeta */}
-                  {newFolderInput ? (
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="text"
-                        value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setNewFolderInput(false); setNewFolderName(''); }}}
-                        placeholder="Nombre de carpeta"
-                        autoFocus
-                        className="flex-1 bg-white/[0.05] border border-white/[0.08] focus:border-violet-500/50 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none transition-all"
-                      />
-                      <button
-                        onClick={handleCreateFolder}
-                        disabled={!newFolderName.trim() || creatingFolder}
-                        className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-30 text-white text-xs font-semibold transition-all"
-                      >
-                        {creatingFolder ? '...' : 'Crear'}
-                      </button>
-                    </div>
-                  ) : (
-                    currentFolder && (
-                      <button
-                        onClick={() => setNewFolderInput(true)}
-                        className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-violet-400 transition-colors py-1"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                        </svg>
-                        Nueva carpeta aquí
-                      </button>
-                    )
+                      {/* Input nueva carpeta */}
+                      {newFolderInput ? (
+                        <div className="flex gap-2 items-center pt-1">
+                          <input
+                            type="text"
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleCreateFolder();
+                              if (e.key === 'Escape') { setNewFolderInput(false); setNewFolderName(''); }
+                            }}
+                            placeholder="Nombre de la carpeta"
+                            autoFocus
+                            className="flex-1 bg-white/[0.05] border border-white/[0.08] focus:border-violet-500/50 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none transition-all"
+                          />
+                          <button
+                            onClick={handleCreateFolder}
+                            disabled={!newFolderName.trim() || creatingFolder}
+                            className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-30 text-white text-xs font-semibold transition-all flex items-center gap-1"
+                          >
+                            {creatingFolder
+                              ? <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/><path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                              : 'Crear'}
+                          </button>
+                          <button
+                            onClick={() => { setNewFolderInput(false); setNewFolderName(''); }}
+                            className="px-2 py-1.5 rounded-lg text-zinc-600 hover:text-zinc-400 text-xs transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setNewFolderInput(true)}
+                          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-violet-500/30 hover:border-violet-500/50 hover:bg-violet-600/[0.06] text-violet-400 hover:text-violet-300 text-xs font-medium transition-all"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                          </svg>
+                          Nueva carpeta
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               )}
