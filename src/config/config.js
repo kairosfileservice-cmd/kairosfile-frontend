@@ -25,4 +25,5 @@ export const USERS = [
   { id: '4', name: 'Terry Walker',     initials: 'TW', department: '', password: 'walker1' },
   { id: '5', name: 'Eric Hanson',      initials: 'EH', department: '', password: 'hanson1' },
   { id: '6', name: 'Terrence Walker',  initials: 'TW', department: '', password: 'terrence1' },
+  { id: '7', name: 'Proy. Salvadora',  initials: 'PS', department: '', password: 'salva1' },
 ];
